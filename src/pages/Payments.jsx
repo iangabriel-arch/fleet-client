@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import api from '../api/axios.js';
+import { useToast } from '../components/ui/Toast.jsx';
+import { generateReceipt } from '../utils/generateReceipt.js';
 
 const fmt     = (n) => n==null?'—':`KES ${Number(n).toLocaleString()}`;
 const fmtDate = (d) => d?new Date(d).toLocaleDateString('en-KE',{day:'2-digit',month:'short',year:'numeric'}):'—';
@@ -15,6 +17,7 @@ const TYPE_STYLES = {
 };
 
 export default function Payments() {
+  const toast = useToast();
   const [payments, setPayments] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [stats,    setStats]    = useState(null);
@@ -23,29 +26,43 @@ export default function Payments() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [p, s] = await Promise.all([api.get('/payments',{params:{type,limit:25}}), api.get('/payments/stats')]);
-      setPayments(p.data.payments||[]); setStats(s.data.stats);
-    } catch(e){ console.error(e); }
-    finally{ setLoading(false); }
+      const [p, s] = await Promise.all([
+        api.get('/payments', { params:{ type, limit:50 } }),
+        api.get('/payments/stats'),
+      ]);
+      setPayments(p.data.payments || []);
+      setStats(s.data.stats);
+    } catch(e) { toast.error('Failed to load payments'); }
+    finally { setLoading(false); }
   }, [type]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleReceipt = (payment) => {
+    try {
+      generateReceipt(payment, payment.customer);
+      toast.success('Receipt downloaded');
+    } catch(e) {
+      toast.error('Failed to generate receipt');
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto">
       <div className="mb-5">
         <h1 className="font-display font-bold text-xl md:text-2xl text-white">Payments</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Transaction history</p>
+        <p className="text-sm text-gray-500 mt-0.5">Transaction history and receipts</p>
       </div>
 
       {stats && (
         <div className="grid grid-cols-3 gap-2 md:gap-4 mb-5">
           {[
-            { label:'Total Revenue',   value:fmt(stats.totalRevenue),   color:'#C8A96E' },
-            { label:'This Month',      value:fmt(stats.monthlyRevenue), color:'#2EC881' },
-            { label:'Transactions',    value:stats.byType?.reduce((s,t)=>s+t.count,0)||0, color:'#4DA8FF' },
+            { label:'Total Revenue',  value:fmt(stats.totalRevenue),   color:'#C8A96E' },
+            { label:'This Month',     value:fmt(stats.monthlyRevenue), color:'#2EC881' },
+            { label:'Transactions',   value:stats.byType?.reduce((s,t)=>s+t.count,0)||0, color:'#4DA8FF' },
           ].map(({ label, value, color }) => (
-            <div key={label} className="rounded-2xl p-3 md:p-5" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
+            <div key={label} className="rounded-2xl p-3 md:p-5"
+              style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
               <div className="text-xs text-gray-600 uppercase tracking-widest mb-1.5">{label}</div>
               <div className="font-display font-bold text-lg md:text-2xl" style={{ color }}>{value}</div>
             </div>
@@ -64,27 +81,34 @@ export default function Payments() {
       </div>
 
       {/* Desktop table */}
-      <div className="hidden md:block rounded-2xl overflow-hidden" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
+      <div className="hidden md:block rounded-2xl overflow-hidden"
+        style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
-              {['Receipt','Customer','Type','Amount','Method','Date'].map(h => (
+              {['Receipt','Customer','Type','Amount','Method','Date',''].map(h => (
                 <th key={h} className="text-left text-xs text-gray-600 uppercase tracking-widest px-5 py-4 font-medium">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="text-center text-gray-600 py-16 text-xs animate-pulse">Loading...</td></tr>
+              <tr><td colSpan={7} className="text-center text-gray-600 py-16 text-xs animate-pulse">Loading...</td></tr>
             ) : payments.length===0 ? (
-              <tr><td colSpan={6} className="text-center text-gray-600 py-16 text-xs">No payments found</td></tr>
-            ) : payments.map((p,i) => (
-              <motion.tr key={p._id} initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }} transition={{ delay:i*0.025 }}
-                className="transition-colors" style={{ borderBottom:'1px solid rgba(255,255,255,0.04)' }}
+              <tr><td colSpan={7} className="text-center text-gray-600 py-16 text-xs">No payments found</td></tr>
+            ) : payments.map((p, i) => (
+              <motion.tr key={p._id}
+                initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }}
+                transition={{ delay:i*0.025 }}
+                className="transition-colors"
+                style={{ borderBottom:'1px solid rgba(255,255,255,0.04)' }}
                 onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.03)'}
                 onMouseLeave={e => e.currentTarget.style.background='transparent'}>
                 <td className="px-5 py-4 font-mono text-xs text-gray-500">{p.receiptNumber}</td>
-                <td className="px-5 py-4 text-white">{p.customer?.firstName} {p.customer?.lastName}</td>
+                <td className="px-5 py-4">
+                  <div className="text-white text-sm">{p.customer?.firstName} {p.customer?.lastName}</div>
+                  <div className="text-xs text-gray-600">{p.customer?.phone}</div>
+                </td>
                 <td className="px-5 py-4">
                   <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border capitalize ${TYPE_STYLES[p.type]||TYPE_STYLES.other}`}>
                     {p.type?.replace('_',' ')}
@@ -93,6 +117,12 @@ export default function Payments() {
                 <td className="px-5 py-4 text-gold font-semibold">{fmt(p.amount)}</td>
                 <td className="px-5 py-4 text-gray-400 capitalize text-xs">{p.method?.replace('_',' ')}</td>
                 <td className="px-5 py-4 text-gray-500 text-xs">{fmtDate(p.createdAt)}</td>
+                <td className="px-5 py-4">
+                  <button onClick={() => handleReceipt(p)}
+                    className="text-xs px-3 py-1.5 rounded-lg text-gold border border-gold/20 hover:bg-gold/10 transition-colors">
+                    ↓ Receipt
+                  </button>
+                </td>
               </motion.tr>
             ))}
           </tbody>
@@ -105,9 +135,12 @@ export default function Payments() {
           <div className="text-center text-gray-600 py-16 text-xs animate-pulse">Loading...</div>
         ) : payments.length===0 ? (
           <div className="text-center text-gray-600 py-16 text-xs">No payments found</div>
-        ) : payments.map((p,i) => (
-          <motion.div key={p._id} initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay:i*0.04 }}
-            className="rounded-2xl p-4" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
+        ) : payments.map((p, i) => (
+          <motion.div key={p._id}
+            initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }}
+            transition={{ delay:i*0.04 }}
+            className="rounded-2xl p-4"
+            style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
             <div className="flex items-start justify-between mb-2">
               <div>
                 <div className="font-medium text-white text-sm">{p.customer?.firstName} {p.customer?.lastName}</div>
@@ -115,11 +148,17 @@ export default function Payments() {
               </div>
               <div className="text-gold font-semibold text-sm">{fmt(p.amount)}</div>
             </div>
-            <div className="flex items-center justify-between">
-              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border capitalize ${TYPE_STYLES[p.type]||TYPE_STYLES.other}`}>
-                {p.type?.replace('_',' ')}
-              </span>
-              <div className="text-xs text-gray-500">{p.method?.replace('_',' ').toUpperCase()} · {fmtDate(p.createdAt)}</div>
+            <div className="flex items-center justify-between mt-3">
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border capitalize ${TYPE_STYLES[p.type]||TYPE_STYLES.other}`}>
+                  {p.type?.replace('_',' ')}
+                </span>
+                <span className="text-xs text-gray-500">{fmtDate(p.createdAt)}</span>
+              </div>
+              <button onClick={() => handleReceipt(p)}
+                className="text-xs px-3 py-1.5 rounded-lg text-gold border border-gold/20 hover:bg-gold/10 transition-colors">
+                ↓ Receipt
+              </button>
             </div>
           </motion.div>
         ))}
