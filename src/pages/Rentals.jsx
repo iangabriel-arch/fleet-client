@@ -21,17 +21,18 @@ const Input = ({ label, ...props }) => (
 );
 
 function CreateRentalModal({ onClose, onSaved }) {
+  const toast = useToast();
   const [vehicles,  setVehicles]  = useState([]);
   const [customers, setCustomers] = useState([]);
   const [form,      setForm]      = useState({ vehicle:'', customer:'', startDate:'', endDate:'', depositAmount:'', notes:'' });
   const [preview,   setPreview]   = useState(null);
   const [loading,   setLoading]   = useState(false);
-  const [error,     setError]     = useState('');
 
   useEffect(() => {
-    Promise.all([api.get('/vehicles',{params:{status:'available',limit:100}}), api.get('/customers',{params:{limit:100}})]).then(([v,c]) => {
-      setVehicles(v.data.vehicles||[]); setCustomers(c.data.customers||[]);
-    });
+    Promise.all([
+      api.get('/vehicles',  { params:{ status:'available', limit:100 } }),
+      api.get('/customers', { params:{ limit:100 } }),
+    ]).then(([v,c]) => { setVehicles(v.data.vehicles||[]); setCustomers(c.data.customers||[]); });
   }, []);
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -46,10 +47,13 @@ function CreateRentalModal({ onClose, onSaved }) {
   }, [form.vehicle, form.startDate, form.endDate, vehicles]);
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); setError(''); setLoading(true);
-    try { await api.post('/rentals',{...form,depositAmount:parseFloat(form.depositAmount)||0}); onSaved(); onClose(); }
-    catch(err){ setError(err.response?.data?.message||'Failed to create rental.'); }
-    finally{ setLoading(false); }
+    e.preventDefault(); setLoading(true);
+    try {
+      await api.post('/rentals', { ...form, depositAmount:parseFloat(form.depositAmount)||0 });
+      toast.success('Rental booking created successfully');
+      onSaved(); onClose();
+    } catch(err) { toast.error(err.response?.data?.message||'Failed to create rental'); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -64,7 +68,6 @@ function CreateRentalModal({ onClose, onSaved }) {
           <h2 className="font-display font-semibold text-white text-lg">New Booking</h2>
           <button onClick={onClose} className="text-gray-600 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
         </div>
-        {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
             <label className="block text-xs text-gray-500 uppercase tracking-widest mb-1.5">Vehicle *</label>
@@ -113,16 +116,33 @@ function CreateRentalModal({ onClose, onSaved }) {
 }
 
 function ReturnModal({ rental, onClose, onSaved }) {
-  const [form,    setForm]    = useState({ returnMileage:'', fuelLevel:'full', damageCharge:0, inspectionNotes:'' });
+  const toast = useToast();
+  // Always initialize with a valid fuel level — never null or empty
+  const [form, setForm] = useState({
+    returnMileage:  '',
+    fuelLevel:      'full',
+    damageCharge:   '0',
+    inspectionNotes:'',
+  });
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState('');
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   const handleSubmit = async (e) => {
-    e.preventDefault(); setError(''); setLoading(true);
-    try { await api.patch(`/rentals/${rental._id}/return`,{...form,damageCharge:parseFloat(form.damageCharge)||0}); onSaved(); onClose(); }
-    catch(err){ setError(err.response?.data?.message||'Failed to process return.'); }
-    finally{ setLoading(false); }
+    e.preventDefault(); setLoading(true);
+    try {
+      // Build payload — only include optional fields if they have values
+      const payload = {
+        fuelLevel:    form.fuelLevel, // always a valid enum value
+        damageCharge: parseFloat(form.damageCharge) || 0,
+      };
+      if (form.returnMileage)   payload.returnMileage   = parseInt(form.returnMileage);
+      if (form.inspectionNotes) payload.inspectionNotes = form.inspectionNotes;
+
+      await api.patch(`/rentals/${rental._id}/return`, payload);
+      toast.success('Vehicle returned successfully');
+      onSaved(); onClose();
+    } catch(err) { toast.error(err.response?.data?.message||'Failed to process return'); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -138,21 +158,24 @@ function ReturnModal({ rental, onClose, onSaved }) {
           <button onClick={onClose} className="text-gray-600 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
         </div>
         <div className="rounded-xl p-3 mb-4" style={{ background:'rgba(255,255,255,0.03)' }}>
-          <div className="text-xs text-gray-400">{rental.vehicle?.make} {rental.vehicle?.model} — {rental.vehicle?.registrationNumber}</div>
-          <div className="text-xs text-gray-500">{rental.customer?.firstName} {rental.customer?.lastName}</div>
+          <div className="text-xs text-gray-400 font-medium">{rental.vehicle?.make} {rental.vehicle?.model} — {rental.vehicle?.registrationNumber}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{rental.customer?.firstName} {rental.customer?.lastName}</div>
         </div>
-        {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-3">
-          <Input label="Return Mileage" type="number" value={form.returnMileage} onChange={set('returnMileage')} placeholder="km" />
+          <Input label="Return Mileage (km)" type="number" value={form.returnMileage} onChange={set('returnMileage')} placeholder="Current odometer reading" />
           <div>
-            <label className="block text-xs text-gray-500 uppercase tracking-widest mb-1.5">Fuel Level</label>
+            <label className="block text-xs text-gray-500 uppercase tracking-widest mb-1.5">Fuel Level on Return</label>
             <select value={form.fuelLevel} onChange={set('fuelLevel')} style={{ background:'#0A0F1E' }}
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none">
-              {['empty','quarter','half','three_quarter','full'].map(f => <option key={f} value={f}>{f.replace('_',' ')}</option>)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-gold/40">
+              <option value="full">Full</option>
+              <option value="three_quarter">Three Quarter</option>
+              <option value="half">Half</option>
+              <option value="quarter">Quarter</option>
+              <option value="empty">Empty</option>
             </select>
           </div>
           <Input label="Damage Charge (KES)" type="number" value={form.damageCharge} onChange={set('damageCharge')} placeholder="0" />
-          <Input label="Inspection Notes" value={form.inspectionNotes} onChange={set('inspectionNotes')} placeholder="Vehicle condition..." />
+          <Input label="Inspection Notes" value={form.inspectionNotes} onChange={set('inspectionNotes')} placeholder="Vehicle condition on return..." />
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-3 rounded-xl text-sm text-gray-400 border border-white/10">Cancel</button>
             <button type="submit" disabled={loading} className="flex-1 py-3 rounded-xl text-sm font-display font-semibold text-ink disabled:opacity-50" style={{ background:'linear-gradient(135deg,#C8A96E,#E8C87A)' }}>
@@ -166,17 +189,17 @@ function ReturnModal({ rental, onClose, onSaved }) {
 }
 
 export default function Rentals() {
+  const toast = useToast();
   const [rentals,   setRentals]   = useState([]);
   const [loading,   setLoading]   = useState(true);
   const [status,    setStatus]    = useState('');
   const [showAdd,   setShowAdd]   = useState(false);
   const [returning, setReturning] = useState(null);
-  const toast = useToast();
 
   const load = useCallback(async () => {
     setLoading(true);
     try { const { data } = await api.get('/rentals',{params:{status,limit:25}}); setRentals(data.rentals||[]); }
-    catch(e){ console.error(e); }
+    catch(e){ toast.error('Failed to load rentals'); }
     finally{ setLoading(false); }
   }, [status]);
 
@@ -184,12 +207,13 @@ export default function Rentals() {
 
   const handlePickup = async (id) => {
     try { await api.patch(`/rentals/${id}/pickup`); toast.success('Vehicle picked up — rental is now active'); load(); }
-    catch(e){ toast.error(e.response?.data?.message||'Action failed'); }
+    catch(e){ toast.error(e.response?.data?.message||'Failed to process pickup'); }
   };
+
   const handleCancel = async (id) => {
     if (!confirm('Cancel this rental?')) return;
-    try { await api.patch(`/rentals/${id}/cancel`,{reason:'Cancelled by staff'}); toast.success('Rental cancelled successfully'); load(); }
-    catch(e){ toast.error(e.response?.data?.message||'Action failed'); }
+    try { await api.patch(`/rentals/${id}/cancel`,{reason:'Cancelled by staff'}); toast.success('Rental cancelled'); load(); }
+    catch(e){ toast.error(e.response?.data?.message||'Failed to cancel'); }
   };
 
   return (
@@ -206,7 +230,6 @@ export default function Rentals() {
         </button>
       </div>
 
-      {/* Status tabs - scrollable on mobile */}
       <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-hide pb-1">
         {[['','All'],['reserved','Reserved'],['active','Active'],['completed','Completed'],['cancelled','Cancelled']].map(([val,label]) => (
           <button key={val} onClick={() => setStatus(val)}
@@ -218,7 +241,8 @@ export default function Rentals() {
       </div>
 
       {/* Desktop table */}
-      <div className="hidden md:block rounded-2xl overflow-hidden" style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
+      <div className="hidden md:block rounded-2xl overflow-hidden"
+        style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
@@ -248,7 +272,7 @@ export default function Rentals() {
                   <div className="text-white">{r.customer?.firstName} {r.customer?.lastName}</div>
                   <div className="text-xs text-gray-600">{r.customer?.phone}</div>
                 </td>
-                <td className="px-5 py-4 text-gray-400 text-xs">
+                <td className="px-5 py-4 text-xs text-gray-400">
                   <div>{fmtDate(r.startDate)}</div>
                   <div className="text-gray-600">→ {fmtDate(r.endDate)}</div>
                 </td>
@@ -263,9 +287,11 @@ export default function Rentals() {
                   <div className="flex gap-2">
                     {r.status==='reserved' && <>
                       <button onClick={() => handlePickup(r._id)} className="text-xs px-3 py-1.5 rounded-lg font-medium text-ink" style={{ background:'linear-gradient(135deg,#C8A96E,#E8C87A)' }}>Pickup</button>
-                      <button onClick={() => handleCancel(r._id)} className="text-xs px-3 py-1.5 rounded-lg text-red-400 border border-red-500/20">Cancel</button>
+                      <button onClick={() => handleCancel(r._id)} className="text-xs px-3 py-1.5 rounded-lg text-red-400 border border-red-500/20 hover:bg-red-500/10 transition-colors">Cancel</button>
                     </>}
-                    {r.status==='active' && <button onClick={() => setReturning(r)} className="text-xs px-3 py-1.5 rounded-lg font-medium text-ink" style={{ background:'linear-gradient(135deg,#C8A96E,#E8C87A)' }}>Return</button>}
+                    {r.status==='active' && (
+                      <button onClick={() => setReturning(r)} className="text-xs px-3 py-1.5 rounded-lg font-medium text-ink" style={{ background:'linear-gradient(135deg,#C8A96E,#E8C87A)' }}>Return</button>
+                    )}
                     {['completed','cancelled'].includes(r.status) && <span className="text-xs text-gray-700">—</span>}
                   </div>
                 </td>
@@ -296,37 +322,28 @@ export default function Rentals() {
                 <span className="w-1.5 h-1.5 rounded-full bg-current"/>{r.status}
               </span>
             </div>
-            <div className="text-xs text-gray-400 mb-3">
-              {r.customer?.firstName} {r.customer?.lastName} · {r.customer?.phone}
-            </div>
+            <div className="text-xs text-gray-400 mb-3">{r.customer?.firstName} {r.customer?.lastName} · {r.customer?.phone}</div>
             <div className="grid grid-cols-3 gap-2 text-xs mb-3">
-              <div>
-                <div className="text-gray-600 mb-0.5">Start</div>
-                <div className="text-gray-300">{fmtDate(r.startDate)}</div>
-              </div>
-              <div>
-                <div className="text-gray-600 mb-0.5">End</div>
-                <div className="text-gray-300">{fmtDate(r.endDate)}</div>
-              </div>
-              <div>
-                <div className="text-gray-600 mb-0.5">Total</div>
-                <div className="text-gold font-medium">{fmt(r.totalCost)}</div>
-              </div>
+              <div><div className="text-gray-600 mb-0.5">Start</div><div className="text-gray-300">{fmtDate(r.startDate)}</div></div>
+              <div><div className="text-gray-600 mb-0.5">End</div><div className="text-gray-300">{fmtDate(r.endDate)}</div></div>
+              <div><div className="text-gray-600 mb-0.5">Total</div><div className="text-gold font-medium">{fmt(r.totalCost)}</div></div>
             </div>
             <div className="flex gap-2">
               {r.status==='reserved' && <>
                 <button onClick={() => handlePickup(r._id)} className="flex-1 py-2 rounded-xl text-xs font-semibold text-ink" style={{ background:'linear-gradient(135deg,#C8A96E,#E8C87A)' }}>Pickup</button>
                 <button onClick={() => handleCancel(r._id)} className="flex-1 py-2 rounded-xl text-xs text-red-400 border border-red-500/20">Cancel</button>
               </>}
-              {r.status==='active' && <button onClick={() => setReturning(r)} className="w-full py-2 rounded-xl text-xs font-semibold text-ink" style={{ background:'linear-gradient(135deg,#C8A96E,#E8C87A)' }}>Return Vehicle</button>}
+              {r.status==='active' && (
+                <button onClick={() => setReturning(r)} className="w-full py-2.5 rounded-xl text-xs font-semibold text-ink" style={{ background:'linear-gradient(135deg,#C8A96E,#E8C87A)' }}>Return Vehicle</button>
+              )}
             </div>
           </motion.div>
         ))}
       </div>
 
       <AnimatePresence>
-        {showAdd   && <CreateRentalModal onClose={() => setShowAdd(false)}   onSaved={load} />}
-        {returning && <ReturnModal rental={returning} onClose={() => setReturning(null)} onSaved={load} />}
+        {showAdd    && <CreateRentalModal onClose={() => setShowAdd(false)}   onSaved={load} />}
+        {returning  && <ReturnModal rental={returning} onClose={() => setReturning(null)} onSaved={load} />}
       </AnimatePresence>
     </div>
   );
