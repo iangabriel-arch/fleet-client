@@ -1,0 +1,37 @@
+<svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#A9863F"/>
+      <stop offset="50%" stop-color="#C8A96E"/>
+      <stop offset="100%" stop-color="#E4C68C"/>
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#121216"/>
+      <stop offset="100%" stop-color="#0A0A0D"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Badge -->
+  <rect x="0" y="0" width="512" height="512" rx="114" fill="url(#bgGrad)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="112.5" fill="none" stroke="#2A2A30" stroke-width="1.5"/>
+
+  <!-- Route path: start point -> waypoint -> arrowhead -->
+  <path d="M 138 372 C 172 372 176 300 232 292 C 288 284 292 196 350 158"
+        fill="none"
+        stroke="url(#goldGrad)"
+        stroke-width="30"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- Start point -->
+  <circle cx="138" cy="372" r="21" fill="url(#goldGrad)"/>
+  <circle cx="138" cy="372" r="8" fill="#0A0A0D"/>
+
+  <!-- Waypoint (mid stop) -->
+  <circle cx="245" cy="284" r="17" fill="#0A0A0D"/>
+  <circle cx="245" cy="284" r="17" fill="none" stroke="url(#goldGrad)" stroke-width="7"/>
+
+  <!-- Arrowhead at destination -->
+  <path d="M 350 158 L 322 168 L 336 182 Z" fill="url(#goldGrad)" transform="rotate(-8 336 168)"/>
+  <path d="M 350 158 L 340 130 L 322 146 Z" fill="url(#goldGrad)" transform="rotate(-8 336 145)"/>
+</svg>
